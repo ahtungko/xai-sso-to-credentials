@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.Python
+*.egg-info/
+.venv/
+venv/
+.env
+
+# 本地输入/输出（含敏感凭证，切勿提交）
+xai_credentials/
+sso_list.txt
+token_list.txt
+*.tmp
+*.log
+
+# 系统/编辑器
+.DS_Store
+.idea/
+.vscode/
