@@ -16,9 +16,7 @@ def create_browser():
     options.set_argument("--disable-dev-shm-usage")
     options.set_argument("--window-size=1920,1080")
     options.set_user_agent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
-    
-    # 💡 核心修改：关闭无头模式，显示真实浏览器界面
-    options.headless(False)
+    options.headless(True)
     
     for candidate in [
         "/usr/bin/chromium-browser",
@@ -34,7 +32,7 @@ def create_browser():
     return browser, page
 
 def run_browser_device_flow(sso_cookie: str, out_dir: str):
-    print("🚀 [1/5] 启动有头浏览器准备接管 OIDC 鉴权流程...")
+    print("🚀 [1/5] 启动无头浏览器准备接管 OIDC 鉴权流程...")
     browser, page = create_browser()
     
     try:
@@ -73,10 +71,15 @@ def run_browser_device_flow(sso_cookie: str, out_dir: str):
         verification_uri_complete = dc_data.get("verification_uri_complete")
         interval = dc_data.get("interval", 5)
         
-        print(f"🌐 [4/5] 获取验证链接成功，正在浏览器中打开授权页...")
+        print(f"🌐 [4/5] 获取验证链接成功，正在无头浏览器中打开授权页...")
         page.get(verification_uri_complete)
-        time.sleep(3)
+        time.sleep(5)
         
+        os.makedirs(out_dir, exist_ok=True)
+        init_screenshot = os.path.join(out_dir, "debug_auth_page.png")
+        page.get_screenshot(path=init_screenshot)
+        print(f"📸 已保存初始页面截图至: {init_screenshot}")
+
         print("🖱️ 自动检测并逐步点击授权按钮...")
         deadline = time.time() + 20
         success_steps = 0
@@ -128,6 +131,11 @@ def run_browser_device_flow(sso_cookie: str, out_dir: str):
                 
             time.sleep(1.5)
             
+        # 💡 新增：在点击完成后立即对当前浏览器状态截一张图，看看点完按钮后页面变成了什么样
+        post_click_screenshot = os.path.join(out_dir, "debug_after_click.png")
+        page.get_screenshot(path=post_click_screenshot)
+        print(f"📸 已保存点击后的页面截图至: {post_click_screenshot}")
+            
         print(f"⏳ [5/5] 开始轮询换取 OAuth 凭证 (Token)...")
         token_url = f"{OIDC_ISSUER}/oauth2/token"
         poll_interval = max(interval, 6)
@@ -146,7 +154,6 @@ def run_browser_device_flow(sso_cookie: str, out_dir: str):
             
             if "access_token" in token_data:
                 print("🎉 成功获取 OAuth 凭证！")
-                os.makedirs(out_dir, exist_ok=True)
                 out_file = os.path.join(out_dir, "auth.json")
                 with open(out_file, "w", encoding="utf-8") as f:
                     json.dump(token_data, f, indent=2, ensure_ascii=False)
@@ -161,6 +168,11 @@ def run_browser_device_flow(sso_cookie: str, out_dir: str):
                 
             time.sleep(poll_interval)
             
+        # 💡 新增：如果轮询超时，再截一张图查看最终页面长相
+        timeout_screenshot = os.path.join(out_dir, "debug_timeout_page.png")
+        page.get_screenshot(path=timeout_screenshot)
+        print(f"📸 轮询超时，已保存当前最终页面截图至: {timeout_screenshot}")
+        
         print("❌ 凭证换取超时。")
         return False
 
@@ -174,7 +186,7 @@ def run_browser_device_flow(sso_cookie: str, out_dir: str):
             pass
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="有头模式 DrissionPage 鉴权脚本")
+    parser = argparse.ArgumentParser(description="带全流程截图的 DrissionPage 鉴权脚本")
     parser.add_argument("--sso", required=True, help="包含 SSO Cookie 的文件路径 或 直接传入")
     parser.add_argument("--out-dir", default="./xai_credentials", help="凭证输出目录")
     
