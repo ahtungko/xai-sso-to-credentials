@@ -15,7 +15,6 @@ def create_browser():
     options.set_argument("--disable-gpu")
     options.set_argument("--disable-dev-shm-usage")
     options.set_argument("--window-size=1920,1080")
-    # 模拟真实 User-Agent 避开 CF 判定
     options.set_user_agent("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
     options.headless(True)
     
@@ -38,11 +37,9 @@ def run_browser_device_flow(sso_cookie: str, out_dir: str):
     
     try:
         print("🍪 [2/5] 正在注入 SSO Cookie...")
-        # 先访问主站建域
         page.get("https://x.ai")
         time.sleep(2)
         
-        # 尝试注入不同域名的 Cookie 保证覆盖
         cookie_dict = {
             "name": "sso",
             "value": sso_cookie.strip(),
@@ -72,13 +69,22 @@ def run_browser_device_flow(sso_cookie: str, out_dir: str):
         dc_data = resp.json()
         device_code = dc_data.get("device_code")
         verification_uri_complete = dc_data.get("verification_uri_complete")
-        interval = dc_data.get("interval", 5)  # 获取推荐轮询间隔
+        interval = dc_data.get("interval", 5)
         
         print(f"🌐 [4/5] 获取验证链接成功，正在无头浏览器中打开授权页...")
         page.get(verification_uri_complete)
-        time.sleep(5)  # 等待 Cloudflare / JS 逻辑加载完毕
+        time.sleep(5)
         
-        # 检查是否成功授权或点击确认按钮
+        # 调试输出当前页面标题和 URL
+        print(f"📄 当前浏览器页面标题: {page.title}")
+        print(f"🔗 当前浏览器页面 URL: {page.url}")
+        
+        # 保存截图到本地，供排查当前无头浏览器画面
+        os.makedirs(out_dir, exist_ok=True)
+        screenshot_path = os.path.join(out_dir, "debug_auth_page.png")
+        page.get_screenshot(path=screenshot_path)
+        print(f"📸 已保存当前页面调试截图至: {screenshot_path}")
+
         print("🖱️ 自动检测并尝试点击页面授权按钮...")
         deadline = time.time() + 15
         clicked = False
@@ -102,9 +108,9 @@ def run_browser_device_flow(sso_cookie: str, out_dir: str):
             
         time.sleep(3)
         
-        print(f"⏳ [5/5] 开始轮询换取 OAuth 凭证 (Token) (间隔设定: {max(interval, 6)}秒)...")
+        print(f"⏳ [5/5] 开始轮询换取 OAuth 凭证 (Token)...")
         token_url = f"{OIDC_ISSUER}/oauth2/token"
-        poll_interval = max(interval, 6) # 设置安全间隔防止 slow_down
+        poll_interval = max(interval, 6)
         
         for i in range(15):
             token_resp = requests.post(
@@ -120,27 +126,21 @@ def run_browser_device_flow(sso_cookie: str, out_dir: str):
             
             if "access_token" in token_data:
                 print("🎉 成功获取 OAuth 凭证！")
-                
-                os.makedirs(out_dir, exist_ok=True)
                 out_file = os.path.join(out_dir, "auth.json")
                 with open(out_file, "w", encoding="utf-8") as f:
                     json.dump(token_data, f, indent=2, ensure_ascii=False)
-                    
                 print(f"📁 凭证已成功保存至: {out_file}")
                 return True
                 
             error = token_data.get("error")
             if error == "authorization_pending":
                 print(f"⏳ 等待授权确认中... ({i+1}/15)")
-            elif error == "slow_down":
-                print("⚠️ 触发 slow_down，自动延长等待间隔...")
-                poll_interval += 2
             else:
                 print(f"⚠️ 轮询返回状态: {error} - {token_data.get('error_description')}")
                 
             time.sleep(poll_interval)
             
-        print("❌ 凭证换取超时，请确认该 SSO Cookie 是否最新、是否有效。")
+        print("❌ 凭证换取超时。")
         return False
 
     except Exception as exc:
@@ -153,8 +153,8 @@ def run_browser_device_flow(sso_cookie: str, out_dir: str):
             pass
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="使用 DrissionPage 浏览器自动化解决 SSO 鉴权 invalid_grant 问题")
-    parser.add_argument("--sso", required=True, help="包含 SSO Cookie 的文件路径 或 直接传入 Cookie 字符串")
+    parser = argparse.ArgumentParser(description="带有调试功能的 DrissionPage 鉴权脚本")
+    parser.add_argument("--sso", required=True, help="包含 SSO Cookie 的文件路径 或 直接传入")
     parser.add_argument("--out-dir", default="./xai_credentials", help="凭证输出目录")
     
     args = parser.parse_args()
