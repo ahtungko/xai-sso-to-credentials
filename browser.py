@@ -75,20 +75,16 @@ def run_browser_device_flow(sso_cookie: str, out_dir: str):
         page.get(verification_uri_complete)
         time.sleep(5)
         
-        print(f"📄 当前浏览器页面标题: {page.title}")
-        print(f"🔗 当前浏览器页面 URL: {page.url}")
-        
         os.makedirs(out_dir, exist_ok=True)
-        screenshot_path = os.path.join(out_dir, "debug_auth_page.png")
-        page.get_screenshot(path=screenshot_path)
-        print(f"📸 已保存当前页面调试截图至: {screenshot_path}")
+        init_screenshot = os.path.join(out_dir, "debug_auth_page.png")
+        page.get_screenshot(path=init_screenshot)
+        print(f"📸 已保存初始页面截图至: {init_screenshot}")
 
         print("🖱️ 自动检测并逐步点击授权按钮...")
         deadline = time.time() + 20
         success_steps = 0
         
         while time.time() < deadline:
-            # 第一步：点击 Continue 按钮
             clicked_continue = page.run_js(r"""
                 const buttons = Array.from(document.querySelectorAll('button, [role="button"], input[type="submit"]'));
                 const target = buttons.find(node => {
@@ -103,11 +99,13 @@ def run_browser_device_flow(sso_cookie: str, out_dir: str):
             """)
             
             if clicked_continue:
-                print("✅ 成功点击了 Continue 按钮，等待跳转...")
-                time.sleep(3)
+                print("✅ 成功点击了 Continue 按钮，等待页面加载...")
                 success_steps += 1
+                try:
+                    page.wait.load_complete(timeout=5)
+                except Exception:
+                    time.sleep(3)
                 
-            # 第二步：点击最终的授权/允许按钮
             clicked_final = page.run_js(r"""
                 const buttons = Array.from(document.querySelectorAll('button, [role="button"], input[type="submit"]'));
                 const target = buttons.find(node => {
@@ -124,7 +122,7 @@ def run_browser_device_flow(sso_cookie: str, out_dir: str):
             if clicked_final:
                 print("✅ 成功点击了最终的授权确认按钮！")
                 print("⏳ 正在等待服务器确认授权状态...")
-                time.sleep(5)  # 关键缓冲，确保请求完全发送并写回服务器
+                time.sleep(5)
                 break
                 
             if success_steps > 0 and not clicked_final:
@@ -132,6 +130,11 @@ def run_browser_device_flow(sso_cookie: str, out_dir: str):
                 continue
                 
             time.sleep(1.5)
+            
+        # 💡 新增：在点击完成后立即对当前浏览器状态截一张图，看看点完按钮后页面变成了什么样
+        post_click_screenshot = os.path.join(out_dir, "debug_after_click.png")
+        page.get_screenshot(path=post_click_screenshot)
+        print(f"📸 已保存点击后的页面截图至: {post_click_screenshot}")
             
         print(f"⏳ [5/5] 开始轮询换取 OAuth 凭证 (Token)...")
         token_url = f"{OIDC_ISSUER}/oauth2/token"
@@ -165,6 +168,11 @@ def run_browser_device_flow(sso_cookie: str, out_dir: str):
                 
             time.sleep(poll_interval)
             
+        # 💡 新增：如果轮询超时，再截一张图查看最终页面长相
+        timeout_screenshot = os.path.join(out_dir, "debug_timeout_page.png")
+        page.get_screenshot(path=timeout_screenshot)
+        print(f"📸 轮询超时，已保存当前最终页面截图至: {timeout_screenshot}")
+        
         print("❌ 凭证换取超时。")
         return False
 
@@ -178,7 +186,7 @@ def run_browser_device_flow(sso_cookie: str, out_dir: str):
             pass
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="完整版 DrissionPage 鉴权脚本")
+    parser = argparse.ArgumentParser(description="带全流程截图的 DrissionPage 鉴权脚本")
     parser.add_argument("--sso", required=True, help="包含 SSO Cookie 的文件路径 或 直接传入")
     parser.add_argument("--out-dir", default="./xai_credentials", help="凭证输出目录")
     
