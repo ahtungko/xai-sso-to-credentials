@@ -14,8 +14,6 @@ def create_browser():
     options.set_argument("--no-sandbox")
     options.set_argument("--disable-gpu")
     options.set_argument("--disable-dev-shm-usage")
-    
-    # 关键修复：在 Linux 无头服务器上必须开启 headless 模式
     options.headless(True)
     
     for candidate in [
@@ -37,16 +35,22 @@ def run_browser_device_flow(sso_cookie: str, out_dir: str):
     
     try:
         print("🍪 [2/5] 正在注入 SSO Cookie...")
+        # 访问主域以便写入 Cookie
         page.get("https://x.ai")
-        page.set.cookies({
+        
+        # 兼容处理：DrissionPage 添加 Cookie 的安全字典格式
+        cookie_dict = {
             "name": "sso",
             "value": sso_cookie.strip(),
-            "domain": ".x.ai",
-            "path": "/",
-            "secure": True,
-            "httpOnly": True
-        })
-        
+            "domain": "x.ai",
+            "path": "/"
+        }
+        try:
+            page.set.cookies(cookie_dict)
+        except Exception:
+            # 备用注入方式
+            page.add_cookie(cookie_dict)
+            
         print("🔑 [3/5] 向 OIDC 服务器请求 Device Code...")
         resp = requests.post(
             f"{OIDC_ISSUER}/oauth2/device/code",
@@ -91,7 +95,7 @@ def run_browser_device_flow(sso_cookie: str, out_dir: str):
             time.sleep(1.0)
             
         if not clicked:
-            print("⚠️ 未自动检测到按钮，由于处于无头模式，请确保 SSO Token 有效或页面无需二次点击。")
+            print("⚠️ 未自动检测到按钮，尝试直接继续轮询...")
             
         time.sleep(3)
         
@@ -127,7 +131,7 @@ def run_browser_device_flow(sso_cookie: str, out_dir: str):
                 
             time.sleep(5)
             
-        print("❌ 凭证换取超时，请确认浏览器中的账号状态是否正常。")
+        print("❌ 凭证换取超时，请确认该 SSO Cookie 是否有效。")
         return False
 
     except Exception as exc:
@@ -149,8 +153,14 @@ if __name__ == "__main__":
     sso_input = args.sso
     if os.path.isfile(sso_input):
         with open(sso_input, "r", encoding="utf-8") as f:
-            sso_cookie_value = f.read().strip()
+            # 读取文件，并自动提取第一行非空的内容作为当前测试的 SSO（支持多行格式）
+            lines = [line.strip() for line in f if line.strip()]
+            sso_cookie_value = lines[0] if lines else ""
     else:
         sso_cookie_value = sso_input
+        
+    if not sso_cookie_value:
+        print("❌ 错误：未在文件中找到有效的 SSO Cookie内容。")
+        exit(1)
         
     run_browser_device_flow(sso_cookie_value, args.out_dir)
