@@ -1,6 +1,7 @@
 import argparse
 import os
 import json
+import time
 import requests
 
 OIDC_ISSUER = "https://auth.x.ai"
@@ -11,14 +12,12 @@ def run_pure_requests_flow(sso_cookie: str, out_dir: str):
     print("🚀 [1/3] 初始化会话并注入 SSO Cookie...")
     session = requests.Session()
     
-    # 模拟标准浏览器的请求头，尽可能贴近真实客户端
     session.headers.update({
         "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/png,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.5",
     })
     
-    # 注入 Cookie 到 x.ai 域
     session.cookies.set("sso", sso_cookie.strip(), domain=".x.ai", path="/")
     
     print("🔑 [2/3] 向 OIDC 服务器请求 Device Code...")
@@ -38,12 +37,10 @@ def run_pure_requests_flow(sso_cookie: str, out_dir: str):
     dc_data = resp.json()
     device_code = dc_data.get("device_code")
     user_code = dc_data.get("user_code")
-    verification_uri = dc_data.get("verification_uri")
     
     print(f"✅ 获取成功！User Code: {user_code}")
     print(f"🌐 尝试直接通过 API 提交设备授权确认...")
     
-    # 尝试直接向 accounts 提交确认请求（部分 OIDC 实现支持直接 POST user_code 进行授权）
     confirm_resp = session.post(
         f"https://accounts.x.ai/oauth2/device",
         data={
