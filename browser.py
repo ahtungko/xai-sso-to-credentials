@@ -4,10 +4,6 @@ import time
 import json
 import requests
 from DrissionPage import Chromium, ChromiumOptions
-from util import get_logger, setup_logger
-
-setup_logger()
-logger = get_logger("grok_browser_auth")
 
 OIDC_ISSUER = "https://auth.x.ai"
 CLIENT_ID = "b1a00492-073a-47ea-816f-4c329264a828"
@@ -19,7 +15,6 @@ def create_browser():
     options.set_argument("--disable-gpu")
     options.set_argument("--disable-dev-shm-usage")
     
-    # 如果系统中有安装 Chrome 或 Playwright 的 Chromium，可以自动指定路径
     for candidate in [
         "/usr/bin/chromium-browser",
         "/usr/bin/chromium",
@@ -34,12 +29,11 @@ def create_browser():
     return browser, page
 
 def run_browser_device_flow(sso_cookie: str, out_dir: str):
-    logger.info("🚀 启动浏览器准备接管 OIDC 鉴权流程...")
+    print("🚀 [1/5] 启动浏览器准备接管 OIDC 鉴权流程...")
     browser, page = create_browser()
     
     try:
-        # 1. 注入 SSO Cookie 到 x.ai 域
-        logger.info("正在注入 SSO Cookie...")
+        print("🍪 [2/5] 正在注入 SSO Cookie...")
         page.get("https://x.ai")
         page.set.cookies({
             "name": "sso",
@@ -50,8 +44,7 @@ def run_browser_device_flow(sso_cookie: str, out_dir: str):
             "httpOnly": True
         })
         
-        # 2. 通过标准接口获取 Device Code
-        logger.info("向 OIDC 服务器请求 Device Code...")
+        print("🔑 [3/5] 向 OIDC 服务器请求 Device Code...")
         resp = requests.post(
             f"{OIDC_ISSUER}/oauth2/device/code",
             data={
@@ -62,21 +55,18 @@ def run_browser_device_flow(sso_cookie: str, out_dir: str):
         )
         
         if resp.status_code != 200:
-            logger.error("获取 Device Code 失败: {}", resp.text)
+            print(f"❌ 获取 Device Code 失败: {resp.text}")
             return False
             
         dc_data = resp.json()
         device_code = dc_data.get("device_code")
         verification_uri_complete = dc_data.get("verification_uri_complete")
         
-        logger.info("获取验证链接成功，正在浏览器中打开: {}", verification_uri_complete)
-        
-        # 3. 在同一个浏览器会话中打开鉴权确认页
+        print(f"🌐 [4/5] 获取验证链接成功，正在浏览器中打开...")
         page.get(verification_uri_complete)
         time.sleep(3)
         
-        # 4. 自动点击页面上的授权/确认按钮 (Allow / Authorize / 确认 / 授权)
-        logger.info("等待并尝试自动点击授权确认按钮...")
+        print("🖱️ 等待并尝试自动点击授权确认按钮...")
         deadline = time.time() + 20
         clicked = False
         while time.time() < deadline:
@@ -93,17 +83,16 @@ def run_browser_device_flow(sso_cookie: str, out_dir: str):
                 return false;
             """)
             if clicked:
-                logger.info("成功在浏览器中点击授权按钮！")
+                print("✅ 成功在浏览器中点击授权按钮！")
                 break
             time.sleep(1.0)
             
         if not clicked:
-            logger.warning("未自动检测到按钮，请检查浏览器窗口是否需要手动点击授权。")
+            print("⚠️ 未自动检测到按钮，请检查浏览器窗口是否需要手动点击授权。")
             
         time.sleep(3)
         
-        # 5. 轮询 Token 终端换取 OAuth 凭证
-        logger.info("开始轮询换取 OAuth 凭证 (Token)...")
+        print("⏳ [5/5] 开始轮询换取 OAuth 凭证 (Token)...")
         token_url = f"{OIDC_ISSUER}/oauth2/token"
         
         for _ in range(15):
@@ -119,28 +108,27 @@ def run_browser_device_flow(sso_cookie: str, out_dir: str):
             token_data = token_resp.json()
             
             if "access_token" in token_data:
-                logger.info("🎉 成功获取 OAuth 凭证！")
+                print("🎉 成功获取 OAuth 凭证！")
                 
-                # 保存到指定输出目录
                 os.makedirs(out_dir, exist_ok=True)
                 out_file = os.path.join(out_dir, "auth.json")
                 with open(out_file, "w", encoding="utf-8") as f:
                     json.dump(token_data, f, indent=2, ensure_ascii=False)
                     
-                logger.info("📁 凭证已成功保存至: {}", out_file)
+                print(f"📁 凭证已成功保存至: {out_file}")
                 return True
                 
             error = token_data.get("error")
             if error != "authorization_pending":
-                logger.warning("轮询返回状态: {} - {}", error, token_data.get("error_description"))
+                print(f"⚠️ 轮询返回状态: {error} - {token_data.get('error_description')}")
                 
             time.sleep(5)
             
-        logger.error("❌ 凭证换取超时，请确认浏览器中的账号状态是否正常。")
+        print("❌ 凭证换取超时，请确认浏览器中的账号状态是否正常。")
         return False
 
     except Exception as exc:
-        logger.error("执行浏览器鉴权流程异常: {}", exc)
+        print(f"❌ 执行浏览器鉴权流程异常: {exc}")
         return False
     finally:
         try:
@@ -155,7 +143,6 @@ if __name__ == "__main__":
     
     args = parser.parse_args()
     
-    # 读取 sso 输入（支持传文件或直接传字符串）
     sso_input = args.sso
     if os.path.isfile(sso_input):
         with open(sso_input, "r", encoding="utf-8") as f:
