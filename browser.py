@@ -75,25 +75,25 @@ def run_browser_device_flow(sso_cookie: str, out_dir: str):
         page.get(verification_uri_complete)
         time.sleep(5)
         
-        # 调试输出当前页面标题和 URL
         print(f"📄 当前浏览器页面标题: {page.title}")
         print(f"🔗 当前浏览器页面 URL: {page.url}")
         
-        # 保存截图到本地，供排查当前无头浏览器画面
         os.makedirs(out_dir, exist_ok=True)
         screenshot_path = os.path.join(out_dir, "debug_auth_page.png")
         page.get_screenshot(path=screenshot_path)
         print(f"📸 已保存当前页面调试截图至: {screenshot_path}")
 
-        print("🖱️ 自动检测并尝试点击页面授权按钮...")
-        deadline = time.time() + 15
-        clicked = False
+        print("🖱️ 自动检测并逐步点击授权按钮...")
+        deadline = time.time() + 20
+        success_steps = 0
+        
         while time.time() < deadline:
-            clicked = page.run_js(r"""
-                const buttons = Array.from(document.querySelectorAll('button, [role="button"], a, input[type="submit"]'));
+            # 第一步：点击 Continue 按钮
+            clicked_continue = page.run_js(r"""
+                const buttons = Array.from(document.querySelectorAll('button, [role="button"], input[type="submit"]'));
                 const target = buttons.find(node => {
                     const text = (node.innerText || node.textContent || node.value || '').replace(/\s+/g, '').toLowerCase();
-                    return text.includes('allow') || text.includes('authorize') || text.includes('确认') || text.includes('授权') || text.includes('continue') || text.includes('accept');
+                    return text.includes('continue') || text.includes('下一步') || text.includes('1/2');
                 });
                 if (target && !target.disabled) {
                     target.click();
@@ -101,9 +101,34 @@ def run_browser_device_flow(sso_cookie: str, out_dir: str):
                 }
                 return false;
             """)
-            if clicked:
-                print("✅ 成功在无头浏览器中捕获并点击授权按钮！")
+            
+            if clicked_continue:
+                print("✅ 成功点击了 Continue 按钮，等待跳转到最终授权页...")
+                time.sleep(3)
+                success_steps += 1
+                
+            # 第二步：点击最终的授权/允许按钮
+            clicked_final = page.run_js(r"""
+                const buttons = Array.from(document.querySelectorAll('button, [role="button"], input[type="submit"]'));
+                const target = buttons.find(node => {
+                    const text = (node.innerText || node.textContent || node.value || '').replace(/\s+/g, '').toLowerCase();
+                    return text.includes('allow') || text.includes('authorize') || text.includes('confirm') || text.includes('确认') || text.includes('授权') || text.includes('accept');
+                });
+                if (target && !target.disabled) {
+                    target.click();
+                    return true;
+                }
+                return false;
+            """)
+            
+            if clicked_final:
+                print("✅ 成功点击了最终的授权确认按钮！")
                 break
+                
+            if success_steps > 0 and not clicked_final:
+                time.sleep(1)
+                continue
+                
             time.sleep(1.5)
             
         time.sleep(3)
@@ -153,7 +178,7 @@ def run_browser_device_flow(sso_cookie: str, out_dir: str):
             pass
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="带有调试功能的 DrissionPage 鉴权脚本")
+    parser = argparse.ArgumentParser(description="完整版 DrissionPage 鉴权脚本")
     parser.add_argument("--sso", required=True, help="包含 SSO Cookie 的文件路径 或 直接传入")
     parser.add_argument("--out-dir", default="./xai_credentials", help="凭证输出目录")
     
