@@ -103,7 +103,7 @@ def run_browser_device_flow(sso_cookie: str, out_dir: str):
             """)
             
             if clicked_continue:
-                print("✅ 成功点击了 Continue 按钮，等待跳转到最终授权页...")
+                print("✅ 成功点击了 Continue 按钮，等待跳转...")
                 time.sleep(3)
                 success_steps += 1
                 
@@ -123,6 +123,8 @@ def run_browser_device_flow(sso_cookie: str, out_dir: str):
             
             if clicked_final:
                 print("✅ 成功点击了最终的授权确认按钮！")
+                print("⏳ 正在等待服务器确认授权状态...")
+                time.sleep(5)  # 关键缓冲，确保请求完全发送并写回服务器
                 break
                 
             if success_steps > 0 and not clicked_final:
@@ -131,8 +133,6 @@ def run_browser_device_flow(sso_cookie: str, out_dir: str):
                 
             time.sleep(1.5)
             
-        time.sleep(3)
-        
         print(f"⏳ [5/5] 开始轮询换取 OAuth 凭证 (Token)...")
         token_url = f"{OIDC_ISSUER}/oauth2/token"
         poll_interval = max(interval, 6)
