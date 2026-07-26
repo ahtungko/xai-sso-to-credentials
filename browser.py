@@ -15,6 +15,9 @@ def create_browser():
     options.set_argument("--disable-gpu")
     options.set_argument("--disable-dev-shm-usage")
     
+    # 关键修复：在 Linux 无头服务器上必须开启 headless 模式
+    options.headless(True)
+    
     for candidate in [
         "/usr/bin/chromium-browser",
         "/usr/bin/chromium",
@@ -29,7 +32,7 @@ def create_browser():
     return browser, page
 
 def run_browser_device_flow(sso_cookie: str, out_dir: str):
-    print("🚀 [1/5] 启动浏览器准备接管 OIDC 鉴权流程...")
+    print("🚀 [1/5] 启动无头浏览器准备接管 OIDC 鉴权流程...")
     browser, page = create_browser()
     
     try:
@@ -62,7 +65,7 @@ def run_browser_device_flow(sso_cookie: str, out_dir: str):
         device_code = dc_data.get("device_code")
         verification_uri_complete = dc_data.get("verification_uri_complete")
         
-        print(f"🌐 [4/5] 获取验证链接成功，正在浏览器中打开...")
+        print(f"🌐 [4/5] 获取验证链接成功，正在无头浏览器中打开...")
         page.get(verification_uri_complete)
         time.sleep(3)
         
@@ -88,7 +91,7 @@ def run_browser_device_flow(sso_cookie: str, out_dir: str):
             time.sleep(1.0)
             
         if not clicked:
-            print("⚠️ 未自动检测到按钮，请检查浏览器窗口是否需要手动点击授权。")
+            print("⚠️ 未自动检测到按钮，由于处于无头模式，请确保 SSO Token 有效或页面无需二次点击。")
             
         time.sleep(3)
         
